@@ -1,0 +1,137 @@
+# Loading Package
+library(dplyr)
+library(ggplot2)
+library(haven)
+library(labelled)
+
+# Clean and merge data
+inhome <- read_xpt("Addhealth_data/Data/Core Files - Wave I/Wave I In Home Interview Data/allwave1.xpt",
+         col_select = NULL,
+         skip = 0,
+         n_max = Inf,
+         .name_repair = "unique"
+)
+
+inschool <- read_xpt("Addhealth_data/Data/Core Files - Wave I/Wave I In-School Questionnaire Data/Inschool.xpt",
+                   col_select = NULL,
+                   skip = 0,
+                   n_max = Inf,
+                   .name_repair = "unique"
+)
+
+merged_data <- left_join(inhome, inschool, by = "AID")
+
+  ## Gender
+unique(merged_data$BIO_SEX)
+table(merged_data$BIO_SEX, useNA = "ifany")
+
+merged_data <- merged_data %>%
+  mutate(
+    gender = case_when(
+      BIO_SEX == 1 ~ "Male",
+      BIO_SEX == 2 ~ "Female",
+      TRUE ~ NA_character_  # handles any missing or unknown codes
+    ),
+    gender = factor(gender, levels = c("Male", "Female"))
+  )
+
+table(merged_data$gender, useNA = "ifany")
+summary(merged_data$gender)
+
+df_clean <- merged_data %>% filter(!is.na(gender))
+
+  ## Race
+df_clean <- df_clean %>%
+  mutate(
+    race = case_when(
+      H1GI9 == 1 ~ "White",
+      H1GI9 == 2 ~ "Black",
+      H1GI9 == 3 ~ "Native American",
+      H1GI9 == 4 ~ "Asian",
+      H1GI9 == 5 ~ "Other",
+      TRUE ~ NA_character_
+    ),
+    race = factor(race)
+  )
+
+df_clean <- df_clean %>% filter(!is.na(race))
+df_clean$race <- factor(df_clean$race, levels = c("White", "Black", "Asian", "Hispanic", "Other"))
+
+
+  ## deviant score
+df_clean <- df_clean %>%
+  mutate(
+    dev1 = ifelse(H1DS1 == 0, 0, ifelse(H1DS1 %in% c(1,2,3), 1, NA)),
+    
+    dev2 = ifelse(H1DS2 == 0, 0, ifelse(H1DS2 %in% c(1,2,3), 1, NA)),
+    
+    dev3 = ifelse(H1DS3 == 0, 0, ifelse(H1DS3 %in% c(1,2,3), 1, NA)),
+    
+    dev4 = ifelse(H1DS4 == 0, 0, ifelse(H1DS4 %in% c(1,2,3), 1, NA)),
+    
+    dev5 = ifelse(H1DS5 == 0, 0, ifelse(H1DS5 %in% c(1,2,3), 1, NA)),
+    
+    dev6 = ifelse(H1DS6 == 0, 0, ifelse(H1DS6 %in% c(1,2,3), 1, NA)),
+    
+    dev7 = ifelse(H1DS7 == 0, 0, ifelse(H1DS7 %in% c(1,2,3), 1, NA)),
+    
+    dev8 = ifelse(H1DS8 == 0, 0, ifelse(H1DS8 %in% c(1,2,3), 1, NA)),
+    
+    deviant_score = rowSums(across(dev1:dev8), na.rm = TRUE)
+  )
+
+set_variable_labels(df_clean,
+  dev1 = "graffiti",
+  dev2 = "damage",
+  dev3 = "lie",
+  dev4 = "steal",
+  dev5 = "fight",
+  dev6 = "hurt",
+  dev7 = "runaway",
+  dev8 = "marijuana"
+)
+
+# school performance
+df_clean <- df_clean %>%
+  mutate(
+    school_perf = case_when(
+      H1ED12 == 1 ~ 4,  # A
+      H1ED12 == 2 ~ 3,  # B
+      H1ED12 == 3 ~ 2,  # C
+      H1ED12 == 4 ~ 1,  # D or lower
+      H1ED12 %in% c(6, 96, 97, 98, 99) ~ NA_real_,
+      TRUE ~ NA_real_
+    )
+  )
+
+set_variable_labels(df_clean,
+                    school_perf = "Self-Reported School Performance"
+)
+
+
+# Plot
+plot_data <- df_clean %>%
+  filter(!is.na(school_perf), !is.na(deviant_score), !is.na(gender), !is.na(race))
+
+ggplot(plot_data, aes(x = school_perf, y = deviant_score, color = gender)) +
+  geom_point(alpha = 0.3, position = position_jitter(width = 0.2, height = 0.2)) +
+  geom_smooth(method = "lm", formula = y ~ x, se = TRUE) +
+  scale_x_continuous(
+    breaks = c(1, 2, 3, 4),
+    labels = c("D or lower", "C", "B", "A")
+  ) +
+  labs(
+    title = "Deviant Score by School Performance, Gender, and Race",
+    x = "School Performance (Self-Reported Grades)",
+    y = "Deviant Score",
+    color = "Gender"
+  ) +
+  facet_wrap(~ race) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(family = "Arial", face = "bold", size = 16),
+    axis.title = element_text(family = "Arial", face = "italic", size = 14),
+    axis.text = element_text(family = "Arial", size = 12),
+    legend.title = element_text(family = "Arial", face = "bold", size = 14),
+    legend.text = element_text(family = "Arial", size = 12)
+  )
